@@ -239,13 +239,13 @@ fn extract_test_summary(output: &str, command: &str) -> String {
     }
 
     if !result.is_empty() {
-        output.push_str("📊 SUMMARY:\n");
+        output.push_str("SUMMARY:\n");
         for r in &result {
             output.push_str(&format!("  {}\n", r));
         }
     } else {
         // Fallback: show last few lines
-        output.push_str("📊 OUTPUT (last 5 lines):\n");
+        output.push_str("OUTPUT (last 5 lines):\n");
         let start = lines.len().saturating_sub(5);
         for line in &lines[start..] {
             if !line.trim().is_empty() {

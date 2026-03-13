@@ -251,7 +251,7 @@ impl TokenFormatter for DependencyState {
     }
 
     fn format_ultra(&self) -> String {
-        format!("📦{} ⬆️{}", self.total_packages, self.outdated_count)
+        format!("pkg:{} ^{}", self.total_packages, self.outdated_count)
     }
 }
 

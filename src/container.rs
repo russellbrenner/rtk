@@ -238,7 +238,7 @@ fn kubectl_pods(args: &[String], _verbose: u8) -> Result<()> {
     let json: serde_json::Value = match serde_json::from_str(&raw) {
         Ok(v) => v,
         Err(_) => {
-            rtk.push_str("☸️  No pods found");
+            rtk.push_str("No pods found");
             println!("{}", rtk);
             timer.track("kubectl get pods", "rtk kubectl pods", &raw, &rtk);
             return Ok(());
@@ -246,7 +246,7 @@ fn kubectl_pods(args: &[String], _verbose: u8) -> Result<()> {
     };
 
     let Some(pods) = json["items"].as_array().filter(|a| !a.is_empty()) else {
-        rtk.push_str("☸️  No pods found");
+        rtk.push_str("No pods found");
         println!("{}", rtk);
         timer.track("kubectl get pods", "rtk kubectl pods", &raw, &rtk);
         return Ok(());
@@ -304,7 +304,7 @@ fn kubectl_pods(args: &[String], _verbose: u8) -> Result<()> {
         parts.push(format!("{} restarts", restarts_total));
     }
 
-    rtk.push_str(&format!("☸️  {} pods: {}\n", pods.len(), parts.join(", ")));
+    rtk.push_str(&format!("{} pods: {}\n", pods.len(), parts.join(", ")));
     if !issues.is_empty() {
         rtk.push_str("⚠️  Issues:\n");
         for issue in issues.iter().take(10) {
@@ -345,7 +345,7 @@ fn kubectl_services(args: &[String], _verbose: u8) -> Result<()> {
     let json: serde_json::Value = match serde_json::from_str(&raw) {
         Ok(v) => v,
         Err(_) => {
-            rtk.push_str("☸️  No services found");
+            rtk.push_str("No services found");
             println!("{}", rtk);
             timer.track("kubectl get svc", "rtk kubectl svc", &raw, &rtk);
             return Ok(());
@@ -353,12 +353,12 @@ fn kubectl_services(args: &[String], _verbose: u8) -> Result<()> {
     };
 
     let Some(services) = json["items"].as_array().filter(|a| !a.is_empty()) else {
-        rtk.push_str("☸️  No services found");
+        rtk.push_str("No services found");
         println!("{}", rtk);
         timer.track("kubectl get svc", "rtk kubectl svc", &raw, &rtk);
         return Ok(());
     };
-    rtk.push_str(&format!("☸️  {} services:\n", services.len()));
+    rtk.push_str(&format!("{} services:\n", services.len()));
 
     for svc in services.iter().take(15) {
         let ns = svc["metadata"]["namespace"].as_str().unwrap_or("-");
@@ -433,7 +433,7 @@ fn kubectl_logs(args: &[String], _verbose: u8) -> Result<()> {
     }
 
     let analyzed = crate::log_cmd::run_stdin_str(&raw);
-    let rtk = format!("☸️  Logs for {}:\n{}", pod, analyzed);
+    let rtk = format!("Logs for {}:\n{}", pod, analyzed);
     println!("{}", rtk);
     timer.track(
         &format!("kubectl logs {}", pod),

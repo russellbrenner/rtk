@@ -33,7 +33,7 @@ pub fn run(file1: &Path, file2: &Path, verbose: u8) -> Result<()> {
         return Ok(());
     }
 
-    rtk.push_str(&format!("📊 {} → {}\n", file1.display(), file2.display()));
+    rtk.push_str(&format!("{} → {}\n", file1.display(), file2.display()));
     rtk.push_str(&format!(
         "   +{} added, -{} removed, ~{} modified\n\n",
         diff.added, diff.removed, diff.modified

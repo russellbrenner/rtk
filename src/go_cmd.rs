@@ -372,7 +372,7 @@ fn filter_go_test_json(output: &str) -> String {
         }
 
         result.push_str(&format!(
-            "\n📦 {} [build failed]\n",
+            "\n{} [build failed]\n",
             compact_package_name(package)
         ));
 
@@ -392,7 +392,7 @@ fn filter_go_test_json(output: &str) -> String {
         }
 
         result.push_str(&format!(
-            "\n📦 {} ({} passed, {} failed)\n",
+            "\n{} ({} passed, {} failed)\n",
             compact_package_name(package),
             pkg_result.pass,
             pkg_result.fail

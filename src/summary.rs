@@ -109,7 +109,7 @@ fn detect_output_type(output: &str, command: &str) -> OutputType {
 }
 
 fn summarize_tests(output: &str, result: &mut Vec<String>) {
-    result.push("📋 Test Results:".to_string());
+    result.push("Test Results:".to_string());
 
     let mut passed = 0;
     let mut failed = 0;
@@ -147,7 +147,7 @@ fn summarize_tests(output: &str, result: &mut Vec<String>) {
         result.push(format!("   ❌ {} failed", failed));
     }
     if skipped > 0 {
-        result.push(format!("   ⏭️  {} skipped", skipped));
+        result.push(format!("   skip {} skipped", skipped));
     }
 
     if !failures.is_empty() {
@@ -160,7 +160,7 @@ fn summarize_tests(output: &str, result: &mut Vec<String>) {
 }
 
 fn summarize_build(output: &str, result: &mut Vec<String>) {
-    result.push("🔨 Build Summary:".to_string());
+    result.push("Build Summary:".to_string());
 
     let mut errors = 0;
     let mut warnings = 0;
@@ -184,7 +184,7 @@ fn summarize_build(output: &str, result: &mut Vec<String>) {
     }
 
     if compiled > 0 {
-        result.push(format!("   📦 {} crates/files compiled", compiled));
+        result.push(format!("   {} crates/files compiled", compiled));
     }
     if errors > 0 {
         result.push(format!("   ❌ {} errors", errors));
@@ -206,7 +206,7 @@ fn summarize_build(output: &str, result: &mut Vec<String>) {
 }
 
 fn summarize_logs_quick(output: &str, result: &mut Vec<String>) {
-    result.push("📝 Log Summary:".to_string());
+    result.push("Log Summary:".to_string());
 
     let mut errors = 0;
     let mut warnings = 0;
@@ -230,7 +230,7 @@ fn summarize_logs_quick(output: &str, result: &mut Vec<String>) {
 
 fn summarize_list(output: &str, result: &mut Vec<String>) {
     let lines: Vec<&str> = output.lines().filter(|l| !l.trim().is_empty()).collect();
-    result.push(format!("📋 List ({} items):", lines.len()));
+    result.push(format!("List ({} items):", lines.len()));
 
     for line in lines.iter().take(10) {
         result.push(format!("   • {}", truncate(line, 70)));
@@ -241,7 +241,7 @@ fn summarize_list(output: &str, result: &mut Vec<String>) {
 }
 
 fn summarize_json(output: &str, result: &mut Vec<String>) {
-    result.push("📋 JSON Output:".to_string());
+    result.push("JSON Output:".to_string());
 
     // Try to parse and show structure
     if let Ok(value) = serde_json::from_str::<serde_json::Value>(output) {
@@ -270,7 +270,7 @@ fn summarize_json(output: &str, result: &mut Vec<String>) {
 fn summarize_generic(output: &str, result: &mut Vec<String>) {
     let lines: Vec<&str> = output.lines().collect();
 
-    result.push("📋 Output:".to_string());
+    result.push("Output:".to_string());
 
     // First few lines
     for line in lines.iter().take(5) {

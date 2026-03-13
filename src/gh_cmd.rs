@@ -235,8 +235,8 @@ fn list_prs(args: &[String], _verbose: u8, ultra_compact: bool) -> Result<()> {
             filtered.push_str("PRs\n");
             println!("PRs");
         } else {
-            filtered.push_str("📋 Pull Requests\n");
-            println!("📋 Pull Requests");
+            filtered.push_str("Pull Requests\n");
+            println!("Pull Requests");
         }
 
         for pr in prs.iter().take(20) {
@@ -254,9 +254,9 @@ fn list_prs(args: &[String], _verbose: u8, ultra_compact: bool) -> Result<()> {
                 }
             } else {
                 match state {
-                    "OPEN" => "🟢",
+                    "OPEN" => "[open]",
                     "MERGED" => "🟣",
-                    "CLOSED" => "🔴",
+                    "CLOSED" => "[closed]",
                     _ => "⚪",
                 }
             };
@@ -352,9 +352,9 @@ fn view_pr(args: &[String], _verbose: u8, ultra_compact: bool) -> Result<()> {
         }
     } else {
         match state {
-            "OPEN" => "🟢",
+            "OPEN" => "[open]",
             "MERGED" => "🟣",
-            "CLOSED" => "🔴",
+            "CLOSED" => "[closed]",
             _ => "⚪",
         }
     };
@@ -516,7 +516,7 @@ fn pr_checks(args: &[String], _verbose: u8, _ultra_compact: bool) -> Result<()> 
 
     let mut filtered = String::new();
 
-    let line = "🔍 CI Checks Summary:\n";
+    let line = "CI Checks Summary:\n";
     filtered.push_str(line);
     print!("{}", line);
 
@@ -581,7 +581,7 @@ fn pr_status(_verbose: u8, _ultra_compact: bool) -> Result<()> {
     let mut filtered = String::new();
 
     if let Some(created_by) = json["createdBy"].as_array() {
-        let line = format!("📝 Your PRs ({}):\n", created_by.len());
+        let line = format!("Your PRs ({}):\n", created_by.len());
         filtered.push_str(&line);
         print!("{}", line);
         for pr in created_by.iter().take(5) {
@@ -640,8 +640,8 @@ fn list_issues(args: &[String], _verbose: u8, ultra_compact: bool) -> Result<()>
             filtered.push_str("Issues\n");
             println!("Issues");
         } else {
-            filtered.push_str("🐛 Issues\n");
-            println!("🐛 Issues");
+            filtered.push_str("Issues\n");
+            println!("Issues");
         }
         for issue in issues.iter().take(20) {
             let number = issue["number"].as_i64().unwrap_or(0);
@@ -656,9 +656,9 @@ fn list_issues(args: &[String], _verbose: u8, ultra_compact: bool) -> Result<()>
                 }
             } else {
                 if state == "OPEN" {
-                    "🟢"
+                    "[open]"
                 } else {
-                    "🔴"
+                    "[closed]"
                 }
             };
             let line = format!("  {} #{} {}\n", icon, number, truncate(title, 60));
@@ -721,7 +721,11 @@ fn view_issue(args: &[String], _verbose: u8) -> Result<()> {
     let author = json["author"]["login"].as_str().unwrap_or("???");
     let url = json["url"].as_str().unwrap_or("");
 
-    let icon = if state == "OPEN" { "🟢" } else { "🔴" };
+    let icon = if state == "OPEN" {
+        "[open]"
+    } else {
+        "[closed]"
+    };
 
     let mut filtered = String::new();
 
@@ -814,8 +818,8 @@ fn list_runs(args: &[String], _verbose: u8, ultra_compact: bool) -> Result<()> {
             filtered.push_str("Runs\n");
             println!("Runs");
         } else {
-            filtered.push_str("🏃 Workflow Runs\n");
-            println!("🏃 Workflow Runs");
+            filtered.push_str("Workflow Runs\n");
+            println!("Workflow Runs");
         }
         for run in runs {
             let id = run["databaseId"].as_i64().unwrap_or(0);
@@ -910,7 +914,7 @@ fn view_run(args: &[String], _verbose: u8) -> Result<()> {
 
     let mut filtered = String::new();
 
-    let line = format!("🏃 Workflow Run #{}\n", run_id);
+    let line = format!("Workflow Run #{}\n", run_id);
     filtered.push_str(&line);
     print!("{}", line);
 
@@ -1000,7 +1004,7 @@ fn run_repo(args: &[String], _verbose: u8, _ultra_compact: bool) -> Result<()> {
 
     let mut filtered = String::new();
 
-    let line = format!("📦 {}/{}\n", owner, name);
+    let line = format!("{}/{}\n", owner, name);
     filtered.push_str(&line);
     print!("{}", line);
 

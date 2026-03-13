@@ -283,7 +283,7 @@ fn filter_migrate_dev(output: &str) -> String {
     let mut result = String::new();
 
     if !migration_name.is_empty() {
-        result.push_str(&format!("🗃️  Migration: {}\n", migration_name));
+        result.push_str(&format!("Migration: {}\n", migration_name));
         result.push_str("═══════════════════════════════════════\n");
     }
 
