@@ -250,12 +250,12 @@ fn extract_schema(value: &Value, depth: usize, max_depth: usize) -> String {
 
                     if is_simple {
                         if i < keys.len() - 1 {
-                            lines.push(format!("{}  {}: {},", indent, key, val_trimmed));
+                            lines.push(format!("{}  \"{}\": {},", indent, key, val_trimmed));
                         } else {
-                            lines.push(format!("{}  {}: {}", indent, key, val_trimmed));
+                            lines.push(format!("{}  \"{}\": {}", indent, key, val_trimmed));
                         }
                     } else {
-                        lines.push(format!("{}  {}:", indent, key));
+                        lines.push(format!("{}  \"{}\":", indent, key));
                         lines.push(val_schema);
                     }
 
@@ -316,16 +316,30 @@ mod tests {
     fn test_extract_schema_simple() {
         let json: Value = serde_json::from_str(r#"{"name": "test", "count": 42}"#).unwrap();
         let schema = extract_schema(&json, 0, 5);
-        assert!(schema.contains("name"));
+        assert!(schema.contains("\"name\""));
         assert!(schema.contains("string"));
         assert!(schema.contains("int"));
+    }
+
+    #[test]
+    fn test_extract_schema_keys_are_quoted() {
+        let json: Value =
+            serde_json::from_str(r#"{"id": 1, "status": "open", "nested": {"key": "val"}}"#)
+                .unwrap();
+        let schema = extract_schema(&json, 0, 5);
+        assert!(schema.contains("\"id\":"), "keys must be double-quoted: {}", schema);
+        assert!(schema.contains("\"status\":"), "keys must be double-quoted: {}", schema);
+        assert!(schema.contains("\"nested\":"), "keys must be double-quoted: {}", schema);
+        assert!(schema.contains("\"key\":"), "nested keys must be double-quoted: {}", schema);
+        // Verify the output is parseable as valid JSON (values replaced with types)
+        // At minimum, keys should be properly quoted
     }
 
     #[test]
     fn test_extract_schema_array() {
         let json: Value = serde_json::from_str(r#"{"items": [1, 2, 3]}"#).unwrap();
         let schema = extract_schema(&json, 0, 5);
-        assert!(schema.contains("items"));
+        assert!(schema.contains("\"items\""));
         assert!(schema.contains("(3)"));
     }
 }
