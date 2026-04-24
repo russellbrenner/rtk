@@ -328,6 +328,14 @@ enum Commands {
         #[arg(short, long)]
         global: bool,
 
+        /// Only configure these agents (comma-separated: claude, cursor, windsurf, cline, gemini, opencode, codex)
+        #[arg(long, value_name = "AGENTS", conflicts_with = "skip")]
+        only: Option<String>,
+
+        /// Configure all agents except these (comma-separated)
+        #[arg(long, value_name = "AGENTS", conflicts_with = "only")]
+        skip: Option<String>,
+
         /// Install OpenCode plugin (in addition to Claude Code)
         #[arg(long)]
         opencode: bool,
@@ -1756,6 +1764,8 @@ fn run_cli() -> Result<i32> {
 
         Commands::Init {
             global,
+            only,
+            skip,
             opencode,
             gemini,
             agent,
@@ -1768,6 +1778,8 @@ fn run_cli() -> Result<i32> {
             codex,
             copilot,
         } => {
+            // --only / --skip: validate agent list early
+            let _ = hooks::init::resolve_agents(only.as_deref(), skip.as_deref())?;
             if show {
                 hooks::init::show_config(codex)?;
             } else if uninstall {
