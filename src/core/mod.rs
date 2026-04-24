@@ -13,3 +13,4 @@ pub mod telemetry_cmd;
 pub mod toml_filter;
 pub mod tracking;
 pub mod utils;
+pub mod verifier;
