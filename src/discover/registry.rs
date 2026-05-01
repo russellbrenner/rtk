@@ -111,6 +111,17 @@ pub fn normalize_command(cmd: &str) -> NormalizedCommand {
         return NormalizedCommand::ignored(trimmed);
     }
 
+    for exact in IGNORED_EXACT {
+        if trimmed == *exact {
+            return NormalizedCommand::ignored(trimmed);
+        }
+    }
+    for prefix in IGNORED_PREFIXES {
+        if trimmed.starts_with(prefix) {
+            return NormalizedCommand::ignored(trimmed);
+        }
+    }
+
     let sanitized_display = sanitize_command_display(trimmed);
     let rewrite_safe = is_rewrite_safe_shell_shape(trimmed);
     let without_line_continuation = strip_leading_line_continuation(trimmed);
@@ -199,10 +210,35 @@ fn is_rewrite_safe_shell_shape(cmd: &str) -> bool {
 fn command_identity(cmd: &str) -> (Option<String>, Option<String>) {
     let mut parts = cmd.split_whitespace();
     let executable = parts.next().map(ToString::to_string);
-    let subcommand = parts
-        .find(|part| !part.starts_with('-') && !part.contains('/') && !part.contains('.'))
-        .map(ToString::to_string);
+    let subcommand = executable.as_deref().and_then(|exe| {
+        if should_include_subcommand_in_family(exe) {
+            parts
+                .find(|part| !part.starts_with('-') && !part.contains('/') && !part.contains('.'))
+                .map(ToString::to_string)
+        } else {
+            None
+        }
+    });
     (executable, subcommand)
+}
+
+fn should_include_subcommand_in_family(executable: &str) -> bool {
+    matches!(
+        executable,
+        "cargo"
+            | "docker"
+            | "dotnet"
+            | "gh"
+            | "git"
+            | "glab"
+            | "go"
+            | "helm"
+            | "kubectl"
+            | "npm"
+            | "pnpm"
+            | "rtk"
+            | "yadm"
+    )
 }
 
 fn normalize_kubectl_global_flags(cmd: &str) -> String {
@@ -303,38 +339,12 @@ struct GolangciRunParts<'a> {
 
 /// Classify a single (already-split) command.
 pub fn classify_command(cmd: &str) -> Classification {
-    let trimmed = cmd.trim();
-    if trimmed.is_empty() {
+    let normalized = normalize_command(cmd);
+    if normalized.ignored {
         return Classification::Ignored;
     }
 
-    // Check ignored
-    for exact in IGNORED_EXACT {
-        if trimmed == *exact {
-            return Classification::Ignored;
-        }
-    }
-    for prefix in IGNORED_PREFIXES {
-        if trimmed.starts_with(prefix) {
-            return Classification::Ignored;
-        }
-    }
-
-    // Strip env prefixes (sudo, env VAR=val, VAR=val)
-    let stripped = ENV_PREFIX.replace(trimmed, "");
-    let cmd_clean = stripped.trim();
-    if cmd_clean.is_empty() {
-        return Classification::Ignored;
-    }
-
-    // Normalize absolute binary paths: /usr/bin/grep → grep (#485)
-    let cmd_normalized = strip_absolute_path(cmd_clean);
-    // Strip git global options: git -C /tmp status → git status (#163)
-    let cmd_normalized = strip_git_global_opts(&cmd_normalized);
-    // Strip golangci-lint global options before `run` so classify/rewrite stays
-    // aligned with the runtime wrapper behavior.
-    let cmd_normalized = strip_golangci_global_opts(&cmd_normalized);
-    let cmd_clean = cmd_normalized.as_str();
+    let cmd_clean = normalized.command_for_matching.as_str();
 
     // Exclude cat/head/tail with redirect operators — these are writes, not reads (#315)
     if cmd_clean.starts_with("cat ")
@@ -397,7 +407,10 @@ pub fn classify_command(cmd: &str) -> Classification {
         }
     } else {
         // Extract base command for unsupported
-        let base = extract_base_command(cmd_clean);
+        let base = normalized
+            .canonical_family
+            .as_deref()
+            .unwrap_or_else(|| extract_base_command(cmd_clean));
         if base.is_empty() {
             Classification::Ignored
         } else {
