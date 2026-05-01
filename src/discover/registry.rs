@@ -21,6 +21,31 @@ pub enum Classification {
     Ignored,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NormalizedCommand {
+    pub executable: Option<String>,
+    pub subcommand: Option<String>,
+    pub canonical_family: Option<String>,
+    pub command_for_matching: String,
+    pub sanitized_display: String,
+    pub ignored: bool,
+    pub rewrite_safe: bool,
+}
+
+impl NormalizedCommand {
+    fn ignored(display: &str) -> Self {
+        Self {
+            executable: None,
+            subcommand: None,
+            canonical_family: None,
+            command_for_matching: String::new(),
+            sanitized_display: display.to_string(),
+            ignored: true,
+            rewrite_safe: false,
+        }
+    }
+}
+
 /// Average token counts per category for estimation when no output_len available.
 pub fn category_avg_tokens(category: &str, subcmd: &str) -> usize {
     match category {
@@ -42,6 +67,196 @@ pub fn category_avg_tokens(category: &str, subcmd: &str) -> usize {
         "PackageManager" => 150,
         _ => 150,
     }
+}
+
+const SECRET_ENV_MARKERS: &[&str] = &[
+    "TOKEN",
+    "SECRET",
+    "PASSWORD",
+    "PASS",
+    "KEY",
+    "AUTH",
+    "CREDENTIAL",
+];
+
+const WRAPPER_COMMANDS: &[&str] = &["sudo", "env", "command"];
+
+const KUBECTL_GLOBAL_FLAGS_WITH_VALUE: &[&str] = &[
+    "-n",
+    "--namespace",
+    "--context",
+    "--kubeconfig",
+    "--server",
+    "--user",
+    "--as",
+    "--as-group",
+    "--token",
+    "--certificate-authority",
+];
+
+const KUBECTL_GLOBAL_FLAGS_NO_VALUE: &[&str] = &[
+    "--all-namespaces",
+    "-A",
+    "--insecure-skip-tls-verify",
+    "--request-timeout",
+];
+
+pub fn normalize_command(cmd: &str) -> NormalizedCommand {
+    let trimmed = cmd.trim();
+    if trimmed.is_empty() {
+        return NormalizedCommand::ignored(trimmed);
+    }
+
+    if trimmed.starts_with('#') {
+        return NormalizedCommand::ignored(trimmed);
+    }
+
+    let sanitized_display = sanitize_command_display(trimmed);
+    let rewrite_safe = is_rewrite_safe_shell_shape(trimmed);
+    let without_line_continuation = strip_leading_line_continuation(trimmed);
+    let without_env = ENV_PREFIX.replace(without_line_continuation, "");
+    let mut command_for_matching = without_env.trim().to_string();
+
+    command_for_matching = strip_absolute_path(&command_for_matching);
+    command_for_matching = strip_wrapper_prefixes(&command_for_matching);
+    command_for_matching = strip_git_global_opts(&command_for_matching);
+    command_for_matching = strip_golangci_global_opts(&command_for_matching);
+    command_for_matching = normalize_kubectl_global_flags(&command_for_matching);
+
+    if command_for_matching.is_empty() {
+        return NormalizedCommand::ignored(&sanitized_display);
+    }
+
+    let (executable, subcommand) = command_identity(&command_for_matching);
+    let canonical_family = executable.as_ref().map(|exe| match subcommand.as_ref() {
+        Some(sub) => format!("{} {}", exe, sub),
+        None => exe.clone(),
+    });
+
+    NormalizedCommand {
+        executable,
+        subcommand,
+        canonical_family,
+        command_for_matching,
+        sanitized_display,
+        ignored: false,
+        rewrite_safe,
+    }
+}
+
+fn sanitize_command_display(cmd: &str) -> String {
+    tokenize(cmd)
+        .into_iter()
+        .map(|token| sanitize_token(&token.value))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn sanitize_token(token: &str) -> String {
+    let Some((name, _value)) = token.split_once('=') else {
+        return token.to_string();
+    };
+
+    let upper = name.trim_start_matches("export ").to_ascii_uppercase();
+    if SECRET_ENV_MARKERS.iter().any(|marker| upper.contains(marker)) {
+        format!("{}=<redacted>", name)
+    } else {
+        token.to_string()
+    }
+}
+
+fn strip_leading_line_continuation(cmd: &str) -> &str {
+    cmd.strip_prefix('\\').map(str::trim_start).unwrap_or(cmd)
+}
+
+fn strip_wrapper_prefixes(cmd: &str) -> String {
+    let mut current = cmd.trim();
+    loop {
+        let Some((first, rest)) = current.split_once(char::is_whitespace) else {
+            return current.to_string();
+        };
+        if WRAPPER_COMMANDS.contains(&first) {
+            current = rest.trim_start();
+        } else {
+            return current.to_string();
+        }
+    }
+}
+
+fn is_rewrite_safe_shell_shape(cmd: &str) -> bool {
+    if has_heredoc(cmd) || cmd.contains("$(") || cmd.contains('`') {
+        return false;
+    }
+
+    let tokens = tokenize(cmd);
+    !tokens.iter().any(|token| {
+        token.kind == TokenKind::Pipe
+            || (token.kind == TokenKind::Operator && token.value == ";")
+            || (token.kind == TokenKind::Shellism && matches!(token.value.as_str(), "(" | ")" | "{" | "}"))
+    })
+}
+
+fn command_identity(cmd: &str) -> (Option<String>, Option<String>) {
+    let mut parts = cmd.split_whitespace();
+    let executable = parts.next().map(ToString::to_string);
+    let subcommand = parts
+        .find(|part| !part.starts_with('-') && !part.contains('/') && !part.contains('.'))
+        .map(ToString::to_string);
+    (executable, subcommand)
+}
+
+fn normalize_kubectl_global_flags(cmd: &str) -> String {
+    let tokens = split_token_spans(cmd);
+    let Some(first) = tokens.first() else {
+        return cmd.to_string();
+    };
+
+    if first.0 != "kubectl" && first.0 != "k" {
+        return cmd.to_string();
+    }
+
+    let mut kept: Vec<&str> = vec!["kubectl"];
+    let mut skipped_globals: Vec<&str> = Vec::new();
+    let mut i = 1;
+    while i < tokens.len() {
+        let token = tokens[i].0;
+        if token == "--" {
+            kept.extend(tokens[i..].iter().map(|t| t.0));
+            break;
+        }
+
+        if let Some((flag, _value)) = token.split_once('=') {
+            if KUBECTL_GLOBAL_FLAGS_WITH_VALUE.contains(&flag) {
+                skipped_globals.push(token);
+                i += 1;
+                continue;
+            }
+        }
+
+        if KUBECTL_GLOBAL_FLAGS_WITH_VALUE.contains(&token) {
+            skipped_globals.push(token);
+            if let Some(value) = tokens.get(i + 1) {
+                skipped_globals.push(value.0);
+            }
+            i += 2;
+            continue;
+        }
+
+        if KUBECTL_GLOBAL_FLAGS_NO_VALUE.contains(&token) {
+            skipped_globals.push(token);
+            i += 1;
+            continue;
+        }
+
+        kept.extend(tokens[i..].iter().map(|t| t.0));
+        break;
+    }
+
+    if kept.len() == 1 {
+        kept.extend(skipped_globals);
+    }
+
+    kept.join(" ")
 }
 
 lazy_static! {
@@ -780,6 +995,61 @@ fn strip_word_prefix<'a>(cmd: &'a str, prefix: &str) -> Option<&'a str> {
 mod tests {
     use super::super::report::RtkStatus;
     use super::*;
+
+    #[test]
+    fn test_normalize_redacts_env_prefix_and_finds_kubectl_get() {
+        let normalized = normalize_command("GITEA_TOKEN=abc123 kubectl -n postgres get pods -o wide");
+
+        assert_eq!(normalized.executable.as_deref(), Some("kubectl"));
+        assert_eq!(normalized.subcommand.as_deref(), Some("get"));
+        assert_eq!(normalized.canonical_family.as_deref(), Some("kubectl get"));
+        assert_eq!(
+            normalized.sanitized_display,
+            "GITEA_TOKEN=<redacted> kubectl -n postgres get pods -o wide"
+        );
+        assert!(!normalized.ignored);
+        assert!(normalized.rewrite_safe);
+    }
+
+    #[test]
+    fn test_normalize_ignores_comment_commands() {
+        let normalized = normalize_command("# Check whether the Gitea token works");
+
+        assert!(normalized.ignored);
+        assert_eq!(normalized.canonical_family, None);
+        assert_eq!(normalized.sanitized_display, "# Check whether the Gitea token works");
+    }
+
+    #[test]
+    fn test_normalize_collapses_leading_backslash_git_commit() {
+        let normalized = normalize_command("\\ git commit -m fix");
+
+        assert_eq!(normalized.executable.as_deref(), Some("git"));
+        assert_eq!(normalized.subcommand.as_deref(), Some("commit"));
+        assert_eq!(normalized.canonical_family.as_deref(), Some("git commit"));
+        assert_eq!(normalized.sanitized_display, "\\ git commit -m fix");
+    }
+
+    #[test]
+    fn test_normalize_marks_pipeline_as_not_rewrite_safe() {
+        let normalized = normalize_command("kubectl get pods | jq .");
+
+        assert_eq!(normalized.canonical_family.as_deref(), Some("kubectl get"));
+        assert!(!normalized.rewrite_safe);
+    }
+
+    #[test]
+    fn test_classify_kubectl_with_global_namespace_flag_as_supported() {
+        assert!(matches!(
+            classify_command("kubectl -n argocd get pods"),
+            Classification::Supported {
+                rtk_equivalent: "rtk kubectl",
+                category: "Infra",
+                status: RtkStatus::Existing,
+                ..
+            }
+        ));
+    }
 
     #[test]
     fn test_classify_git_status() {
