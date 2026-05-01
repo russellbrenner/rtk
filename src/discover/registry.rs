@@ -1065,6 +1065,34 @@ mod tests {
     }
 
     #[test]
+    fn test_observed_homelab_supported_commands_classify_existing() {
+        for (cmd, rtk_equivalent, category) in [
+            ("kubectl exec -n postgres postgres-1 -- ls", "rtk kubectl", "Infra"),
+            ("kubectl rollout status statefulset/redis", "rtk kubectl", "Infra"),
+            ("kubectl run redis-verify --rm -i --image=redis", "rtk kubectl", "Infra"),
+            ("kubectl kustomize --load-restrictor=LoadRestrictionsNone k8s/app", "rtk kubectl", "Infra"),
+            ("helm show values bitnami/postgresql", "rtk helm", "Infra"),
+            ("ps aux", "rtk ps", "System"),
+            ("ping -c 3 fw1", "rtk ping", "Network"),
+            ("yamllint k8s/redis/secret.yaml", "rtk yamllint", "Build"),
+            ("PGPASSWORD=secret psql -h localhost -c 'select 1'", "rtk psql", "Infra"),
+        ] {
+            assert!(
+                matches!(
+                    classify_command(cmd),
+                    Classification::Supported {
+                        rtk_equivalent: actual_rtk,
+                        category: actual_category,
+                        status: RtkStatus::Existing,
+                        ..
+                    } if actual_rtk == rtk_equivalent && actual_category == category
+                ),
+                "expected supported classification for {cmd}"
+            );
+        }
+    }
+
+    #[test]
     fn test_classify_git_status() {
         assert_eq!(
             classify_command("git status"),
