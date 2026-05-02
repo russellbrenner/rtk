@@ -102,7 +102,8 @@ pub fn run(
                     match classify_command(actual_cmd) {
                         Classification::Supported { .. } => {
                             rtk_disabled_count += 1;
-                            let display = truncate_command(&normalize_command(actual_cmd).sanitized_display);
+                            let display =
+                                truncate_command(&normalize_command(actual_cmd).sanitized_display);
                             *rtk_disabled_cmds.entry(display).or_insert(0) += 1;
                         }
                         _ => {
