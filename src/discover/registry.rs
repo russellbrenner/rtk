@@ -169,7 +169,10 @@ fn sanitize_token(token: &str) -> String {
     };
 
     let upper = name.trim_start_matches("export ").to_ascii_uppercase();
-    if SECRET_ENV_MARKERS.iter().any(|marker| upper.contains(marker)) {
+    if SECRET_ENV_MARKERS
+        .iter()
+        .any(|marker| upper.contains(marker))
+    {
         format!("{}=<redacted>", name)
     } else {
         token.to_string()
@@ -203,7 +206,8 @@ fn is_rewrite_safe_shell_shape(cmd: &str) -> bool {
     !tokens.iter().any(|token| {
         token.kind == TokenKind::Pipe
             || (token.kind == TokenKind::Operator && token.value == ";")
-            || (token.kind == TokenKind::Shellism && matches!(token.value.as_str(), "(" | ")" | "{" | "}"))
+            || (token.kind == TokenKind::Shellism
+                && matches!(token.value.as_str(), "(" | ")" | "{" | "}"))
     })
 }
 
@@ -676,16 +680,31 @@ pub fn rewrite_command(cmd: &str, excluded: &[String]) -> Option<String> {
         return None;
     }
 
+    // Non-compound commands that contain command substitutions are not rewrite-safe.
+    let has_compound = trimmed.contains("&&")
+        || trimmed.contains("||")
+        || trimmed.contains(';')
+        || trimmed.contains(" & ")
+        || trimmed.contains('|')
+        || trimmed.contains("$(");
+
+    // Already-RTK commands pass through unchanged.
+    if !has_compound && (trimmed.starts_with("rtk ") || trimmed == "rtk") {
+        return Some(trimmed.to_string());
+    }
+
+    if !has_compound {
+        let normalized = normalize_command(trimmed);
+        if !normalized.rewrite_safe {
+            return None;
+        }
+    }
+
     let compiled = compile_exclude_patterns(excluded);
 
     // Simple (non-compound) already-RTK command — return as-is.
     // For compound commands that start with "rtk" (e.g. "rtk git add . && cargo test"),
     // fall through to rewrite_compound so the remaining segments get rewritten.
-    let has_compound = trimmed.contains("&&")
-        || trimmed.contains("||")
-        || trimmed.contains(';')
-        || trimmed.contains('|')
-        || trimmed.contains(" & ");
     if !has_compound && (trimmed.starts_with("rtk ") || trimmed == "rtk") {
         return Some(trimmed.to_string());
     }
@@ -888,10 +907,8 @@ fn rewrite_segment_inner(seg: &str, excluded: &[ExcludePattern], depth: usize) -
             if rest.is_empty() {
                 return None;
             }
-            return match rewrite_segment_inner(rest, excluded, depth + 1) {
-                Some(rewritten) => Some(format!("{} {}", prefix, rewritten)),
-                None => None,
-            };
+            return rewrite_segment_inner(rest, excluded, depth + 1)
+                .map(|rewritten| format!("{} {}", prefix, rewritten));
         }
     }
 
@@ -1011,7 +1028,8 @@ mod tests {
 
     #[test]
     fn test_normalize_redacts_env_prefix_and_finds_kubectl_get() {
-        let normalized = normalize_command("GITEA_TOKEN=abc123 kubectl -n postgres get pods -o wide");
+        let normalized =
+            normalize_command("GITEA_TOKEN=abc123 kubectl -n postgres get pods -o wide");
 
         assert_eq!(normalized.executable.as_deref(), Some("kubectl"));
         assert_eq!(normalized.subcommand.as_deref(), Some("get"));
@@ -1030,7 +1048,10 @@ mod tests {
 
         assert!(normalized.ignored);
         assert_eq!(normalized.canonical_family, None);
-        assert_eq!(normalized.sanitized_display, "# Check whether the Gitea token works");
+        assert_eq!(
+            normalized.sanitized_display,
+            "# Check whether the Gitea token works"
+        );
     }
 
     #[test]
@@ -1067,15 +1088,35 @@ mod tests {
     #[test]
     fn test_observed_homelab_supported_commands_classify_existing() {
         for (cmd, rtk_equivalent, category) in [
-            ("kubectl exec -n postgres postgres-1 -- ls", "rtk kubectl", "Infra"),
-            ("kubectl rollout status statefulset/redis", "rtk kubectl", "Infra"),
-            ("kubectl run redis-verify --rm -i --image=redis", "rtk kubectl", "Infra"),
-            ("kubectl kustomize --load-restrictor=LoadRestrictionsNone k8s/app", "rtk kubectl", "Infra"),
+            (
+                "kubectl exec -n postgres postgres-1 -- ls",
+                "rtk kubectl",
+                "Infra",
+            ),
+            (
+                "kubectl rollout status statefulset/redis",
+                "rtk kubectl",
+                "Infra",
+            ),
+            (
+                "kubectl run redis-verify --rm -i --image=redis",
+                "rtk kubectl",
+                "Infra",
+            ),
+            (
+                "kubectl kustomize --load-restrictor=LoadRestrictionsNone k8s/app",
+                "rtk kubectl",
+                "Infra",
+            ),
             ("helm show values bitnami/postgresql", "rtk helm", "Infra"),
             ("ps aux", "rtk ps", "System"),
             ("ping -c 3 fw1", "rtk ping", "Network"),
             ("yamllint k8s/redis/secret.yaml", "rtk yamllint", "Build"),
-            ("PGPASSWORD=secret psql -h localhost -c 'select 1'", "rtk psql", "Infra"),
+            (
+                "PGPASSWORD=secret psql -h localhost -c 'select 1'",
+                "rtk psql",
+                "Infra",
+            ),
         ] {
             assert!(
                 matches!(
@@ -1128,6 +1169,40 @@ mod tests {
                 estimated_savings_pct: 80.0,
                 status: RtkStatus::Existing,
             }
+        );
+    }
+
+    #[test]
+    fn test_rewrite_safe_kubectl_global_flag_command() {
+        assert_eq!(
+            rewrite_command("kubectl -n argocd get pods", &[]),
+            Some("rtk kubectl -n argocd get pods".to_string())
+        );
+    }
+
+    #[test]
+    fn test_rewrite_pipe_left_side_only() {
+        assert_eq!(
+            rewrite_command("kubectl get pods | jq .", &[]),
+            Some("rtk kubectl get pods | jq .".to_string())
+        );
+    }
+
+    #[test]
+    fn test_rewrite_skips_command_substitution_env_value() {
+        // Command substitution makes this a compound command; the left segment
+        // is unsupported (bare `VAR=value`), so no rewrite occurs.
+        assert_eq!(
+            rewrite_command("VAR=$(secret-tool read token) kubectl get pods", &[]),
+            None
+        );
+    }
+
+    #[test]
+    fn test_rewrite_does_not_double_wrap_rtk() {
+        assert_eq!(
+            rewrite_command("rtk kubectl get pods", &[]),
+            Some("rtk kubectl get pods".to_string())
         );
     }
 
