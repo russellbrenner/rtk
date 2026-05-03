@@ -81,6 +81,10 @@ const SECRET_ENV_MARKERS: &[&str] = &[
 
 const WRAPPER_COMMANDS: &[&str] = &["sudo", "env", "command"];
 
+/// Characters that can appear at the start of a command as session-parser
+/// artefacts (e.g. `$ ( kubectl ...` → `( kubectl ...`).
+const STRIP_LEADING: &[char] = &['(', ')'];
+
 const KUBECTL_GLOBAL_FLAGS_WITH_VALUE: &[&str] = &[
     "-n",
     "--namespace",
@@ -93,6 +97,17 @@ const KUBECTL_GLOBAL_FLAGS_WITH_VALUE: &[&str] = &[
     "--token",
     "--certificate-authority",
 ];
+
+/// Lenient env-prefix regex that catches mixed-case assignments the strict
+/// uppercase-only ENV_PREFIX misses (e.g. `DOCKERCONFIG=`, `imageTag=foo`).
+const LENIENT_ENV_ASSIGN: &str =
+    r#"(?:[A-Za-z_][A-Za-z0-9_]*=(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\S*)\s+)+"#;
+
+lazy_static! {
+    static ref LENIENT_ENV_PREFIX: Regex =
+        Regex::new(&format!(r#"^(?:{})"#, LENIENT_ENV_ASSIGN))
+            .expect("invalid lenient env regex");
+}
 
 const KUBECTL_GLOBAL_FLAGS_NO_VALUE: &[&str] = &[
     "--all-namespaces",
@@ -126,7 +141,49 @@ pub fn normalize_command(cmd: &str) -> NormalizedCommand {
     let rewrite_safe = is_rewrite_safe_shell_shape(trimmed);
     let without_line_continuation = strip_leading_line_continuation(trimmed);
     let without_env = ENV_PREFIX.replace(without_line_continuation, "");
-    let mut command_for_matching = without_env.trim().to_string();
+    // Also strip mixed-case env assignments the strict ENV_PREFIX missed
+    // (e.g. DOCKERCONFIG=, imageTag=foo).
+    let without_env = LENIENT_ENV_PREFIX.replace(&without_env, "");
+    let after_env = without_env.trim();
+
+    // Strip session-parser artefacts: leading (, ) from "$ ( cmd ...)" splits
+    let after_env = after_env.trim_start_matches(STRIP_LEADING).trim_start();
+
+    // Flag-only fragments have no executable
+    if after_env.is_empty() || after_env.starts_with('-') {
+        return NormalizedCommand::ignored(trimmed);
+    }
+
+    // Check for comments after env stripping (e.g. "VAR=val # comment ...")
+    if after_env.starts_with('#') {
+        return NormalizedCommand::ignored(trimmed);
+    }
+
+    // Ignore command substitution fragments from session parser.
+    // Catch "$ (...)" (with space), "$(..." (immediate), or bare "$".
+    // Do NOT match "$(" appearing later in the args — those are valid
+    // commands that happen to contain a substitution (e.g. git log $(...)).
+    if after_env.starts_with("$(") || after_env.starts_with("$ (") || after_env.starts_with('$') {
+        return NormalizedCommand::ignored(trimmed);
+    }
+
+    // Ignore lines that are just continuation markers after session extraction
+    if after_env == "\\" || after_env.starts_with("\\\n") {
+        return NormalizedCommand::ignored(trimmed);
+    }
+
+    // Clean trailing unmatched parenthesis from command substitution fragments
+    let after_env = if after_env.ends_with(')') && !after_env.contains('(') {
+        after_env.trim_end_matches(')').trim_end()
+    } else {
+        after_env
+    };
+
+    if after_env.is_empty() {
+        return NormalizedCommand::ignored(trimmed);
+    }
+
+    let mut command_for_matching = after_env.to_string();
 
     command_for_matching = strip_absolute_path(&command_for_matching);
     command_for_matching = strip_wrapper_prefixes(&command_for_matching);
@@ -1062,6 +1119,54 @@ mod tests {
         assert_eq!(normalized.subcommand.as_deref(), Some("commit"));
         assert_eq!(normalized.canonical_family.as_deref(), Some("git commit"));
         assert_eq!(normalized.sanitized_display, "\\ git commit -m fix");
+    }
+
+    #[test]
+    fn test_normalize_ignores_env_then_comment() {
+        let normalized =
+            normalize_command("GITEA_TOKEN=abc # Use the saved file python3 - << 'EOF'");
+
+        assert!(normalized.ignored);
+    }
+
+    #[test]
+    fn test_normalize_ignores_command_substitution_fragment() {
+        let normalized = normalize_command("$ ( kubectl get secret gitea-registry -n k8s-mcp )");
+
+        assert!(normalized.ignored);
+    }
+
+    #[test]
+    fn test_normalize_ignores_dollar_paren_without_space() {
+        let normalized = normalize_command("$(kubectl get pods)");
+
+        assert!(normalized.ignored);
+    }
+
+    #[test]
+    fn test_normalize_ignores_flag_only_fragment() {
+        let normalized = normalize_command("-n litellm get secret");
+
+        assert!(normalized.ignored);
+    }
+
+    #[test]
+    fn test_normalize_strips_trailing_paren_in_fragment() {
+        // "get" is not in should_include_subcommand_in_family, so canonical_family
+        // is just "get". The key assertion is that the trailing ")" was stripped
+        // and the command was NOT ignored.
+        let normalized = normalize_command("get pods )");
+
+        assert_eq!(normalized.canonical_family.as_deref(), Some("get"));
+        assert!(!normalized.ignored);
+    }
+
+    #[test]
+    fn test_normalize_strips_trailing_paren_complex() {
+        let normalized =
+            normalize_command("DOCKERCONFIG= $ ( kubectl get secret gitea-registry -n k8s-mcp -o jsonpath='{.data.\\.dockerconfigjson}' ) kubectl create secret");
+
+        assert!(normalized.ignored);
     }
 
     #[test]
