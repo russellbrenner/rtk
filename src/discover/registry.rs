@@ -105,8 +105,7 @@ const LENIENT_ENV_ASSIGN: &str =
 
 lazy_static! {
     static ref LENIENT_ENV_PREFIX: Regex =
-        Regex::new(&format!(r#"^(?:{})"#, LENIENT_ENV_ASSIGN))
-            .expect("invalid lenient env regex");
+        Regex::new(&format!(r#"^(?:{})"#, LENIENT_ENV_ASSIGN)).expect("invalid lenient env regex");
 }
 
 const KUBECTL_GLOBAL_FLAGS_NO_VALUE: &[&str] = &[
