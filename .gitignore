@@ -46,5 +46,11 @@ claudedocs
 .vitals/
 .worktrees/
 
-# icm 
+# Claude Code / agent-generated working artefacts
+.claude/worktrees/
+.hermes/
+docs/superpowers/plans/
+docs/superpowers/specs/
+
+# icm
 .fastembed_cache/
