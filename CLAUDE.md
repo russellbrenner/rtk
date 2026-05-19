@@ -22,6 +22,12 @@ rtk gain       # Should show token savings stats (NOT "command not found")
 
 If `rtk gain` fails, you have the wrong package installed.
 
+## Current Project State
+
+- **Branch SSOT (2026-05-04):** `master` includes missed-command classification and was pushed to private fork `russellbrenner/master` at `578c4f9e0886642fcbf0c91febfa2b59ef6ade98`; it remains ahead of upstream `origin/master`.
+- **Agent artefacts:** `.claude/worktrees/`, `.hermes/`, `docs/superpowers/plans/`, and `docs/superpowers/specs/` are generated/local artefacts and intentionally gitignored.
+- **Missed-command consolidation:** Dirty `master` edits in `src/discover/registry.rs` were an older duplicate of the worktree implementation; the old diff was preserved as a safety patch before merging the completed branch.
+
 ## Development Commands
 
 > **Note**: If rtk is installed, prefer `rtk <cmd>` over raw commands for token-optimized output.
